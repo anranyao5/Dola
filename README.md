@@ -1,23 +1,11 @@
-# Dva development demo
+# Dva family cloud client
 
-Self-contained Chinese learning, virtual pets, and flower rewards prototype.
+This release connects the learning interface to the existing CloudBase family sync function.
+The configured public API base is embedded in index.html; no server API key is included.
 
-Open `index.html`, or deploy the repository root as a static website.
-No installation, package manager, or build step is required.
+Deploy repository root, no install/build command, output ./, path /.
+The previous local-browser demo is preserved at demo.html.
+CloudBase database and HTTP health checks were confirmed by the user in the target environment.
+Family registration, authenticated state writes, cross-origin requests, three-second runtime constraints, and actual two-device acceptance still require live verification.
 
-## Important limits
-
-This is a development demo, not a finished family service. All homework, pet progress, flowers, and redemption records are stored only in the current browser using localStorage. They do not sync between a parent's computer and a child's iPad. The parent entry is a UI switch, without real account authentication. Do not upload sensitive child information. Product photos are examples supplied for the reward catalogue; requesting a gift does not purchase anything.
-
-## CloudBase static hosting
-
-Repository: anranyao5/Dola
-Branch: codex/dva-preview
-Root directory: /
-Build command: none (leave empty)
-Output/static directory: .
-Entry file: index.html
-
-CloudBase's free default domain is for development/testing and has access and reliability limits. Verify the generated HTTPS address in the target environment after deployment. Keep existing __auth/ and cloud-admin/ files intact.
-
-This branch contains only the tested single-file release and this README. It does not contain local databases, CLI authentication, or secrets.
+Parents create one family and keep the displayed family code. Children log in to that same family using the child role and six-digit password. Do not create separate families for parent and child.
