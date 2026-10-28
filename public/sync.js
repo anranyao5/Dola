@@ -1,5 +1,19 @@
 // The cloud is authoritative. No local edit is reported as saved before acknowledgment.
-persist=function(){try{localStorage.setItem(KEY,JSON.stringify(state));return true;}catch{toast('云端记录已收到，本机缓存空间不足；重新登录可从云端恢复');return false;}};
+let cloudCacheEnabled=true;
+persist=function(){
+ if(!cloudCacheEnabled)return true;
+ try{
+  const cache=JSON.stringify(cloudPack(state));
+  // Keep image bytes out of Web Storage; the authenticated cloud remains authoritative.
+  if(cache.length>256*1024){localStorage.removeItem(KEY);return true;}
+  localStorage.setItem(KEY,cache);
+ }catch{
+  // An unavailable local cache must not turn an acknowledged cloud save into a failure.
+  try{localStorage.removeItem(KEY);}catch{}
+  cloudCacheEnabled=false;
+ }
+ return true;
+};
 const CLOUD_SESSION_KEY='dva-family-session-v1',builtinPhotos=new Map(seed().gifts.map(g=>[g.id,g.photo]));
 let cloudSession=null,cloudBusy=false,cloudReady=false,cloudVersion=-1,cloudCanonical=null,cloudUrlFiles=new Map(),cloudClockOffset=0,cloudRequestPending=null;
 try{cloudSession=JSON.parse(localStorage.getItem(CLOUD_SESSION_KEY)||'null');}catch{}

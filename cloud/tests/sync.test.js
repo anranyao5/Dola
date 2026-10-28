@@ -78,3 +78,15 @@ test('logout revokes only the current token; wrong password attempts are limited
  const {parent,child}=await family();assert.equal((await request('POST','/logout',{},child.token)).status,200);assert.equal((await request('GET','/state',undefined,child.token)).status,401);assert.equal((await state(parent.token)).role,'parent');
  let last;for(let i=0;i<13;i++)last=await request('POST','/login',{familyCode:parent.familyCode,password:'incorrect',role:'parent'});assert.equal(last.status,429);
 });
+
+
+test('health diagnostic never exposes raw SDK errors or credentials',async()=>{
+ const {diagnostic,createHandler}=require('../functions/dva-sync/index');
+ const secret='secret-example-value';
+ const failure=Object.assign(new Error('permission denied; token='+secret),{code:'42501'});
+ assert.deepEqual(diagnostic(failure),{code:'42501',reason:'SERVICE_PERMISSION'});
+ const h=createHandler({store:{health:async()=>{throw failure;}},storage:{}});
+ const r=await h({httpMethod:'GET',path:'/health',headers:{}});
+ assert.equal(r.statusCode,503);assert.ok(!r.body.includes(secret));assert.equal(JSON.parse(r.body).diagnostic.code,'42501');
+ assert.equal(diagnostic({code:secret+' / unexpected',message:'token='+secret}).code,'UNKNOWN');
+});

@@ -4,7 +4,16 @@ const {promisify}=require('node:util');
 const scrypt=promisify(crypto.scrypt);
 const {ApiError,initialState,applyOperation,settle,clone}=require('./engine');
 const {PgStore}=require('./postgres');
+const {PrivateStorage}=require('./storage');
 const digest=s=>crypto.createHash('sha256').update(s).digest('hex');
+// Return only bounded error identifiers and fixed categories, never raw SDK messages.
+function diagnostic(error){
+ const raw=String(error?.code||error?.name||'UNKNOWN');
+ const code=/^[A-Za-z0-9_.-]{1,80}$/.test(raw)?raw:'UNKNOWN';
+ const message=String(error?.message||'');
+ const reason=/permission denied|not authorized|access.?denied|forbidden/i.test(message)?'SERVICE_PERMISSION':/schema cache|could not find.*function|does not exist/i.test(message)?'RPC_NOT_FOUND':/credential|access.?token|unauthorized|authentication/i.test(message)?'SERVICE_IDENTITY':/fetch|network|timeout|ENOTFOUND|ECONN/i.test(message)?'DATABASE_CONNECTION':/rpc.*not a function|undefined.*rpc|Cannot read properties/i.test(message)?'SDK_CLIENT':'DATABASE_REQUEST';
+ return {code,reason};
+}
 const DEFAULT_ORIGIN='https://dola-homework-d1ghno6wa0993f682-1517233563.tcloudbaseapp.com';
 async function passwordHash(password,salt){return (await scrypt(password,salt,32,{N:16384,r:8,p:1})).toString('hex');}
 function validPassword(value,parent){return typeof value==='string'&&(parent?value.length>=8&&value.length<=128:/^\d{6}$/.test(value));}
@@ -20,8 +29,8 @@ function createHandler({store,storage,origins=[DEFAULT_ORIGIN],now=()=>Date.now(
   return {state,version,assetUrls:urls,familyCode:session.code,role:session.role,serverTime:now()};
  }
  async function snapshot(session){for(let i=0;i<5;i++){const row=await store.state(session.familyId);if(!row)throw new ApiError(404,'家庭不存在');const next=clone(row.state);settle(next,now());if(JSON.stringify(next)!==JSON.stringify(row.state)){const saved=await store.cas(session.familyId,row.version,next);if(!saved)continue;return decorate(session,next,saved.version);}return decorate(session,row.state,row.version);}throw new ApiError(409,'另一个设备正在保存，请稍后重试');}
- return async function handler(event){let origin='';try{
-  const request=parseEvent(event);origin=request.headers.origin||'';if(origin&&!origins.includes(origin))throw new ApiError(403,'此网站未获允许访问家庭服务');
+ return async function handler(event){let origin='',healthCheck=false;try{
+  const request=parseEvent(event);healthCheck=request.method==='GET'&&request.path==='/health';origin=request.headers.origin||'';if(origin&&!origins.includes(origin))throw new ApiError(403,'此网站未获允许访问家庭服务');
   const reply=(status,data)=>({statusCode:status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...(origin?{'Access-Control-Allow-Origin':origin,'Vary':'Origin'}:{}),'Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type'},body:JSON.stringify(data),isBase64Encoded:false});
   if(request.method==='OPTIONS')return reply(204,{});
   if(request.method==='GET'&&request.path==='/health'){await store.health();return reply(200,{ok:true,schema:1});}
@@ -43,7 +52,7 @@ function createHandler({store,storage,origins=[DEFAULT_ORIGIN],now=()=>Date.now(
    if(session.role!=='parent')throw new ApiError(403,'只有家长能上传文件');await limit('upload:'+session.familyId,100,3600000);
    const suffix={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf'}[body.mime];if(!suffix||typeof body.data!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(body.data))throw new ApiError(400,'请上传图片或PDF');const raw=Buffer.from(body.data,'base64');if(!raw.length||raw.length>1024*1024)throw new ApiError(413,'文件需小于1MB');
    const valid=body.mime==='image/jpeg'?raw.subarray(0,3).equals(Buffer.from([255,216,255])):body.mime==='image/png'?raw.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):body.mime==='image/webp'?raw.toString('ascii',0,4)==='RIFF'&&raw.toString('ascii',8,12)==='WEBP':raw.toString('ascii',0,5)==='%PDF-';if(!valid)throw new ApiError(400,'文件内容与类型不一致');
-   const uploaded=await storage.uploadFile({cloudPath:'families/'+session.familyId+'/'+crypto.randomUUID()+'.'+suffix,fileContent:raw});if(!uploaded.fileID)throw new Error('Upload failed');await store.addAsset(session.familyId,uploaded.fileID,body.mime);return reply(201,{fileId:uploaded.fileID});
+   let uploaded;try{uploaded=await storage.uploadFile({cloudPath:'families/'+session.familyId+'/'+crypto.randomUUID()+'.'+suffix,fileContent:raw});}catch(e){const code=/^[A-Za-z0-9_.-]{1,80}$/.test(String(e.code))?e.code:'STORAGE_UPLOAD';throw new ApiError(503,'图片或文档上传失败（'+code+'），文字记录尚未提交，请保留填写内容。');}if(!uploaded.fileID)throw new Error('Upload failed');await store.addAsset(session.familyId,uploaded.fileID,body.mime);return reply(201,{fileId:uploaded.fileID});
   }
   if(request.method==='POST'&&request.path==='/operations'){
    await limit('operations:'+session.familyId,300,60000);const assets=await store.assets(session.familyId),allowed=new Set(assets.map(a=>a.fileId));
@@ -51,9 +60,11 @@ function createHandler({store,storage,origins=[DEFAULT_ORIGIN],now=()=>Date.now(
    throw new ApiError(409,'另一个设备正在保存，请重试');
   }
   throw new ApiError(404,'接口不存在');
- }catch(error){const status=error instanceof ApiError?error.status:503;return {statusCode:status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...(origin&&origins.includes(origin)?{'Access-Control-Allow-Origin':origin,'Vary':'Origin'}:{})},body:JSON.stringify({error:status===503?'云端服务暂不可用，请确认数据库表、服务权限和存储配置。':error.message}),isBase64Encoded:false};}}
+ }catch(error){const status=error instanceof ApiError?error.status:503;return {statusCode:status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...(origin&&origins.includes(origin)?{'Access-Control-Allow-Origin':origin,'Vary':'Origin'}:{})},body:JSON.stringify({error:status===503?'云端服务暂不可用，请确认数据库表、服务权限和存储配置。':error.message,...(status===503&&healthCheck?{diagnostic:diagnostic(error)}:{})}),isBase64Encoded:false};}}
 }
 let cloudHandler;
-exports.main=async event=>{if(!cloudHandler){const cloudbase=require('@cloudbase/node-sdk');const app=cloudbase.init({env:cloudbase.SYMBOL_CURRENT_ENV});cloudHandler=createHandler({store:new PgStore(app.rdb()),storage:app,origins:(process.env.DVA_ALLOWED_ORIGINS||DEFAULT_ORIGIN).split(',').map(x=>x.trim()).filter(Boolean)});}return cloudHandler(event);};
+exports.main=async event=>{if(!cloudHandler){const cloudbase=require('@cloudbase/node-sdk');const app=cloudbase.init({env:cloudbase.SYMBOL_CURRENT_ENV,accessKey:process.env.CLOUDBASE_APIKEY});cloudHandler=createHandler({store:new PgStore(app.rdb()),storage:new PrivateStorage({env:process.env.SCF_NAMESPACE||process.env.TCB_ENV||'dola-homework-d1ghno6wa0993f682',key:process.env.CLOUDBASE_APIKEY,bucket:process.env.DVA_STORAGE_BUCKET||'dva-family-files',legacy:app}),origins:(process.env.DVA_ALLOWED_ORIGINS||DEFAULT_ORIGIN).split(',').map(x=>x.trim()).filter(Boolean)});}return cloudHandler(event);};
 exports.createHandler=createHandler;
 exports.passwordHash=passwordHash;
+
+exports.diagnostic=diagnostic;
