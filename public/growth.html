@@ -258,7 +258,24 @@ $('#speakButton').onclick=()=>speakTitle(currentId);
 function timerValue(t){return (t.elapsed||0)+(t.started?Math.max(0,Date.now()-t.started):0);}
 function paintTimer(){const t=taskNow();if(!t)return;const ms=timerValue(t),locked=t.done||t.day!==dayOf();$('#timerDisplay').textContent=formatTime(ms);$('#timerToggle').textContent=t.started?'暂停':ms?'继续计时':'开始计时';$('#timerToggle').disabled=locked;$('#timerEnd').disabled=locked||ms<1000;$('#timerReset').disabled=locked;$('#timerHint').textContent=t.done?'本次练习用时已保存':t.started?'正在计时，切换页面或锁屏仍会计时。':ms?'已暂停，暂停期间不计入用时。':'准备好后再开始。计时进度会保存在本浏览器。';}
 $('#timerToggle').onclick=()=>{const t=taskNow();if(t.done||t.day!==dayOf())return;if(transact(()=>{const t=taskNow();if(t.started){t.elapsed=timerValue(t);t.started=null;}else t.started=Date.now();}))paintTimer();};$('#timerReset').onclick=()=>{if(!confirm('要清除本次用时并重新开始吗？'))return;if(transact(()=>{const t=taskNow();if(t.done||t.day!==dayOf())throw Error('当前作业不可修改');t.elapsed=0;t.started=null;}))paintTimer();};
-function finishTask(){const learnerId=learningPet().id,previousLevel=petLevel(learningPet());let gotFlower=false,elapsed=0;const success=transact(()=>{const t=taskNow();if(!t||t.done)throw Error('这份作业已经完成，不会重复奖励');if(t.day!==dayOf())throw Error('仅可完成今天的作业');if(t.kind==='raz-new'&&(!t.steps.read||!t.steps.quiz))throw Error('点读和Quiz都完成后，再打卡哦');if(t.kind==='oral'){elapsed=timerValue(t);if(elapsed<1000)throw Error('请先开始计时');t.elapsed=Math.round(elapsed);t.started=null;}t.done=true;t.studyPetId=learnerId;t.finishedAt=new Date().toISOString();credit('task:'+t.id,0,10,'完成 '+t.title,t.day);const before=earnedFlowers();settleDaily(t.day);gotFlower=earnedFlowers()>before;});if(!success)return;closeDialog('taskDialog');render();toast(gotFlower?'全部完成啦！获得1朵小花和额外20积分 ✿':elapsed?'用时 '+formatTime(elapsed)+'，已打卡，+10积分！':'完成啦，+10积分，还可以喂宠物一口！');const learner=state.pets.find(p=>p.id===learnerId);if(petLevel(learner)>previousLevel)showLevelUp(previousLevel,learner);}
+const completionSoundKey='dva-completion-sound-v1';
+let completionSoundEnabled=true,completionAudio=null;
+try{completionSoundEnabled=localStorage.getItem(completionSoundKey)!=='off';}catch{}
+function prepareCompletionSound(){
+ if(!completionSoundEnabled)return;
+ try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;completionAudio=completionAudio||new Audio();if(completionAudio.state==='suspended')completionAudio.resume().catch(()=>{});}catch{}
+}
+function playCompletionSound(){
+ if(!completionSoundEnabled||!completionAudio)return;
+ try{const ctx=completionAudio;if(ctx.state!=='running')return;
+  for(const [delay,frequency] of [[0,659.25],[.18,783.99],[.38,1046.5]]){
+   const tone=ctx.createOscillator(),volume=ctx.createGain(),start=ctx.currentTime+delay;
+   tone.type='sine';tone.frequency.setValueAtTime(frequency,start);volume.gain.setValueAtTime(0,start);volume.gain.linearRampToValueAtTime(.11,start+.015);volume.gain.exponentialRampToValueAtTime(.001,start+.42);
+   tone.connect(volume);volume.connect(ctx.destination);tone.onended=()=>{tone.disconnect();volume.disconnect();};tone.start(start);tone.stop(start+.45);
+  }
+ }catch{}
+}
+function finishTask(){prepareCompletionSound();const learnerId=learningPet().id,previousLevel=petLevel(learningPet());let gotFlower=false,elapsed=0;const success=transact(()=>{const t=taskNow();if(!t||t.done)throw Error('这份作业已经完成，不会重复奖励');if(t.day!==dayOf())throw Error('仅可完成今天的作业');if(t.kind==='raz-new'&&(!t.steps.read||!t.steps.quiz))throw Error('点读和Quiz都完成后，再打卡哦');if(t.kind==='oral'){elapsed=timerValue(t);if(elapsed<1000)throw Error('请先开始计时');t.elapsed=Math.round(elapsed);t.started=null;}t.done=true;t.studyPetId=learnerId;t.finishedAt=new Date().toISOString();credit('task:'+t.id,0,10,'完成 '+t.title,t.day);const before=earnedFlowers();settleDaily(t.day);gotFlower=earnedFlowers()>before;});if(!success)return;playCompletionSound();closeDialog('taskDialog');render();toast(gotFlower?'全部完成啦！获得1朵小花和额外20积分 ✿':elapsed?'用时 '+formatTime(elapsed)+'，已打卡，+10积分！':'完成啦，+10积分，还可以喂宠物一口！');const learner=state.pets.find(p=>p.id===learnerId);if(petLevel(learner)>previousLevel)showLevelUp(previousLevel,learner);}
 $('#completeTask').onclick=finishTask;$('#timerEnd').onclick=finishTask;
 function closeDialog(id){if(id==='taskDialog'){stopSpeech();clearInterval(timerInterval);timerInterval=null;const t=taskNow();if(t&&t.started)toast('计时仍在继续，可重新打开暂停或结束。');}$('#'+id).close();}
 $$('[data-close]').forEach(b=>b.onclick=()=>closeDialog(b.dataset.close));$$('dialog').forEach(d=>d.addEventListener('cancel',e=>{e.preventDefault();closeDialog(d.id);}));

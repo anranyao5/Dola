@@ -96,3 +96,7 @@ window.addEventListener('focus',()=>cloudPull());document.addEventListener('visi
 setInterval(()=>{if(!document.hidden)cloudPull();},10000);
 if(!DVA_API_BASE){$('#cloudAuthMessage').textContent='同步服务还未配置，暂时不能登录。请先部署云函数并填写服务地址。';$('#cloudLogin button').disabled=true;}
 else if(cloudSession)cloudPull(true);
+
+function renderCompletionSoundToggle(){const b=$('#completionSoundToggle');b.textContent='音效：'+(completionSoundEnabled?'开':'关');b.setAttribute('aria-pressed',String(completionSoundEnabled));b.title=completionSoundEnabled?'关闭完成作业的奖励音':'开启完成作业的奖励音';}
+$('#completionSoundToggle').onclick=()=>{completionSoundEnabled=!completionSoundEnabled;try{localStorage.setItem(completionSoundKey,completionSoundEnabled?'on':'off');}catch{}if(completionSoundEnabled)prepareCompletionSound();renderCompletionSoundToggle();};
+renderCompletionSoundToggle();
