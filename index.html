@@ -247,17 +247,36 @@ function taskNow(){return state.tasks.find(t=>t.id===currentId);}
 function openTask(id){stopSpeech();currentId=id;const t=taskNow();if(!t)return;$('#workSubject').textContent=t.subject+' · '+taskLabel(t);$('#workTitle').textContent=t.title;$('#workAttachment').innerHTML=t.attachment?`<a href="${t.attachment}" target="_blank" rel="noopener">打开练习文档 ↗</a>`+(t.mime==='application/pdf'?`<iframe src="${t.attachment}" title="练习PDF"></iframe>`:`<img src="${t.attachment}" alt="练习文档">`):'';$('#razSteps').innerHTML=t.kind==='raz-new'?`<label class="step-check"><input type="checkbox" data-step="read" ${t.steps.read?'checked':''}>点读笔点读完成</label><label class="step-check"><input type="checkbox" data-step="quiz" ${t.steps.quiz?'checked':''}>配套Quiz完成</label>`:'';const readonly=t.done||t.day!==dayOf();$$('[data-step]').forEach(c=>{c.disabled=readonly;c.onchange=async()=>{if(await transact(()=>{const task=taskNow();task.steps[c.dataset.step]=c.checked;})){refreshCompletion();render();}else c.checked=!c.checked;};});$('#timerArea').hidden=t.kind!=='oral';$('#completeTask').hidden=t.kind==='oral'&&!readonly;$('#completeTask').disabled=readonly;$('#completeTask').textContent=t.done?'已经完成啦 ✓':t.day!==dayOf()?'仅可完成今天的作业':'我完成啦 ✓';$('#workReward').textContent=t.done?'✓ 已获得10成长积分':t.day!==dayOf()?'历史与未来作业仅供查看':'完成本项：给'+learningPet().name+' +10成长积分';refreshCompletion();paintTimer();clearInterval(timerInterval);if(t.kind==='oral')timerInterval=setInterval(paintTimer,250);$('#taskDialog').showModal();}
 function refreshCompletion(){const t=taskNow();if(!t)return;$('#completeTask').disabled=t.done||t.day!==dayOf()||(t.kind==='raz-new'&&(!t.steps.read||!t.steps.quiz));}
 function resetSpeechButtons(){$$('.title-speaker').forEach(b=>{b.classList.remove('is-speaking');b.setAttribute('aria-pressed','false');});}
-function stopSpeech(){if('speechSynthesis' in window)speechSynthesis.cancel();resetSpeechButtons();}
+let titleSpeechRun=0,titleSpeechQueue=[];
+function stopSpeech(){titleSpeechRun++;if('speechSynthesis' in window)speechSynthesis.cancel();titleSpeechQueue=[];resetSpeechButtons();}
+function titleSpeechParts(title){
+ const parts=[];let cursor=0;
+ for(const match of title.matchAll(/\bRAZ\b|[A-Za-z](?=级)/gi)){
+  if(match.index>cursor)parts.push({text:title.slice(cursor,match.index),lang:'zh-CN'});
+  for(const letter of match[0].toUpperCase())parts.push({text:letter,lang:'en-US'});
+  cursor=match.index+match[0].length;
+ }
+ if(cursor<title.length)parts.push({text:title.slice(cursor),lang:'zh-CN'});
+ return parts.filter(p=>p.text.trim());
+}
 function speakTitle(id){
  const t=state.tasks.find(t=>t.id===id);if(!t)return;
  if(!('speechSynthesis' in window)||!('SpeechSynthesisUtterance' in window)){toast('当前浏览器不支持朗读，请用Safari打开');return;}
- stopSpeech();const u=new SpeechSynthesisUtterance(t.title.replace(/(^|[^A-Za-z])raz(?=$|[^A-Za-z])/gi,'$1R，A，Z'));u.lang='zh-CN';u.rate=.85;
- const voice=speechSynthesis.getVoices().find(v=>/^zh[-_]CN$/i.test(v.lang));if(voice)u.voice=voice;
- u.onend=resetSpeechButtons;u.onerror=()=>{resetSpeechButtons();};
+ stopSpeech();const run=titleSpeechRun,voices=speechSynthesis.getVoices();
+ titleSpeechQueue=titleSpeechParts(t.title).map(part=>{
+  const u=new SpeechSynthesisUtterance(part.text);u.lang=part.lang;u.rate=.85;
+  const voice=voices.find(v=>v.lang.replace('_','-').toLowerCase()===part.lang.toLowerCase())||voices.find(v=>v.lang.toLowerCase().startsWith(part.lang.slice(0,2)));
+  if(voice)u.voice=voice;
+  u.onerror=()=>{if(run===titleSpeechRun){resetSpeechButtons();titleSpeechQueue=[];}};
+  return u;
+ });
+ const last=titleSpeechQueue.at(-1);if(!last)return;
+ last.onend=()=>{if(run===titleSpeechRun){resetSpeechButtons();titleSpeechQueue=[];}};
  $$('[data-read-title]').filter(b=>b.dataset.readTitle===id).forEach(b=>{b.classList.add('is-speaking');b.setAttribute('aria-pressed','true');});
  if(currentId===id&&$('#taskDialog').open){$('#speakButton').classList.add('is-speaking');$('#speakButton').setAttribute('aria-pressed','true');}
- speechSynthesis.speak(u);
+ for(const utterance of titleSpeechQueue)speechSynthesis.speak(utterance);
 }
+
 $('#speakButton').onclick=()=>speakTitle(currentId);
 function timerValue(t){return (t.elapsed||0)+(t.started?Math.max(0,Date.now()-t.started):0);}
 function paintTimer(){const t=taskNow();if(!t)return;const ms=timerValue(t),locked=t.done||t.day!==dayOf();$('#timerDisplay').textContent=formatTime(ms);$('#timerToggle').textContent=t.started?'暂停':ms?'继续计时':'开始计时';$('#timerToggle').disabled=locked;$('#timerEnd').disabled=locked||ms<1000;$('#timerReset').disabled=locked;$('#timerHint').textContent=t.done?'本次练习用时已保存':t.started?'正在计时，切换页面或锁屏仍会计时。':ms?'已暂停，暂停期间不计入用时。':'准备好后再开始。计时进度会同步保存到家庭账号。';}
