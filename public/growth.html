@@ -247,7 +247,7 @@ function stopSpeech(){if('speechSynthesis' in window)speechSynthesis.cancel();re
 function speakTitle(id){
  const t=state.tasks.find(t=>t.id===id);if(!t)return;
  if(!('speechSynthesis' in window)||!('SpeechSynthesisUtterance' in window)){toast('当前浏览器不支持朗读，请用Safari打开');return;}
- stopSpeech();const u=new SpeechSynthesisUtterance(t.title);u.lang='zh-CN';u.rate=.85;
+ stopSpeech();const u=new SpeechSynthesisUtterance(t.title.replace(/(^|[^A-Za-z])raz(?=$|[^A-Za-z])/gi,'$1R，A，Z'));u.lang='zh-CN';u.rate=.85;
  const voice=speechSynthesis.getVoices().find(v=>/^zh[-_]CN$/i.test(v.lang));if(voice)u.voice=voice;
  u.onend=resetSpeechButtons;u.onerror=()=>{resetSpeechButtons();};
  $$('[data-read-title]').filter(b=>b.dataset.readTitle===id).forEach(b=>{b.classList.add('is-speaking');b.setAttribute('aria-pressed','true');});
