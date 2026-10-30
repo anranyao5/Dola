@@ -14,8 +14,8 @@ async def main():
   await child.locator('#tasks [data-read-title]').click();assert await child.evaluate('__spoken.length')==1;assert await child.evaluate('__spoken[0].text')=='语文书第46页，朗读三遍';assert await child.evaluate('__spoken[0].lang')=='zh-CN';assert not await child.locator('#taskDialog').is_visible()
   await child.locator('#tasks [data-task]').click();assert await child.evaluate('__spoken.length')==1;assert await child.locator('#speechLang').count()==0;assert await child.locator('#timerArea').is_visible();await child.click('#speakButton');assert await child.evaluate('__spoken.length')==2
   await child.locator('[data-close=taskDialog]').click();assert not await child.locator('#partnerControls').is_visible();assert '今日学习伙伴' not in await child.locator('#familyPets').inner_text()
-  spelling=await child.evaluate("()=>{const t=state.tasks[0],before=t.title;t.title='RAZ J级 · 第25本';speakTitle(t.id);const result={spoken:__spoken.slice(-5),display:t.title};t.title=before;return result;}")
-  assert spelling=={'spoken':[{'text':c,'lang':'en-US'} for c in 'RAZJ']+[{'text':'级 · 第25本','lang':'zh-CN'}],'display':'RAZ J级 · 第25本'},spelling
+  spelling=await child.evaluate("()=>{const t=state.tasks[0],before=t.title;t.title='RAZ J级 · 第25本';speakTitle(t.id);const result={spoken:__spoken.slice(-1),display:displayTaskTitle(t),stored:t.title};t.title=before;return result;}")
+  assert spelling=={'spoken':[{'text':'分级阅读，J级，第25本','lang':'zh-CN'}],'display':'分级阅读，J级，第25本','stored':'RAZ J级 · 第25本'},spelling
   title_size=await child.locator('#tasks h3').evaluate('(e)=>getComputedStyle(e).fontSize');assert title_size=='18px';assert not errors,errors
   await parent.screenshot(path='preview/title-only-parent.png');await child.screenshot(path='preview/title-speaker-ipad.png')
   print(json.dumps({'titleOnlyPublishing':True,'crossSubjectTimer':True,'speechByClickOnly':True,'chineseTitleOnly':True,'languageSelectorRemoved':True,'partnerPanelRemoved':True,'taskTitleSize':title_size,'errors':errors}));await b.close()
