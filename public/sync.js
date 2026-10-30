@@ -51,6 +51,7 @@ function cloudAccept(snapshot){
 }
 function cloudInfer(before,after){
  const make=(type,args)=>({id:crypto.randomUUID(),type,args});
+ const reward=after.ledger.find(l=>l.id.startsWith('parent:')&&!before.ledger.some(b=>b.id===l.id));if(reward)return make('reward.grant',{rewardId:reward.id.slice(7),reason:reward.reason});
  const added=after.tasks.filter(t=>!before.tasks.some(b=>b.id===t.id));if(added.length)return make('tasks.create',{tasks:added});
  for(const t of after.tasks){const b=before.tasks.find(b=>b.id===t.id);if(!b)continue;
   if(!b.done&&t.done)return make('task.complete',{taskId:t.id});

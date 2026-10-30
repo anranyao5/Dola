@@ -90,3 +90,18 @@ test('health diagnostic never exposes raw SDK errors or credentials',async()=>{
  assert.equal(r.statusCode,503);assert.ok(!r.body.includes(secret));assert.equal(JSON.parse(r.body).diagnostic.code,'42501');
  assert.equal(diagnostic({code:secret+' / unexpected',message:'token='+secret}).code,'UNKNOWN');
 });
+
+test('parent extra flower is role-checked, fixed at one and durable across retries',async()=>{
+ const {parent,child}=await family(),rewardId=randomUUID(),args={rewardId,reason:'主动整理房间',flowers:999,points:999};
+ assert.equal((await op(child.token,'reward.grant',args)).status,403);
+ assert.equal((await op(parent.token,'reward.grant',{rewardId:randomUUID(),reason:'   '})).status,400);
+ assert.equal((await op(parent.token,'reward.grant',{rewardId:randomUUID(),reason:'a'.repeat(121)})).status,400);
+ const replay=operation('reward.grant',args);
+ const results=await Promise.all([request('POST','/operations',replay,parent.token),request('POST','/operations',replay,parent.token),op(parent.token,'reward.grant',args)]);
+ assert.ok(results.every(r=>r.status===200));let s=(await state(child.token)).state;
+ assert.equal(E.available(s),1);assert.equal(s.ledger.length,1);assert.equal(s.ledger[0].points,0);assert.equal(s.ledger[0].label,'家长奖励 · 主动整理房间');assert.equal(s.ledger[0].day,E.day(clock));
+ // Ledger IDs retain idempotency after the short operation replay cache expires.
+ s.appliedOps=[];const again=E.applyOperation(s,'parent',operation('reward.grant',args),clock);assert.equal(E.available(again),1);
+ const t=task('每日奖励独立');await op(parent.token,'tasks.create',{tasks:[t]});await op(child.token,'task.complete',{taskId:t.id});s=(await state(child.token)).state;assert.equal(E.available(s),2);assert.equal(s.ledger.filter(l=>l.id==='day:'+t.day).length,1);
+ await op(parent.token,'reward.grant',{rewardId:randomUUID(),reason:'完成特殊挑战'});assert.equal(E.available((await state(child.token)).state),3);
+});
