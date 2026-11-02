@@ -55,7 +55,7 @@ function createHandler({store,storage,origins=[DEFAULT_ORIGIN],now=()=>Date.now(
    let uploaded;try{uploaded=await storage.uploadFile({cloudPath:'families/'+session.familyId+'/'+crypto.randomUUID()+'.'+suffix,fileContent:raw});}catch(e){const code=/^[A-Za-z0-9_.-]{1,80}$/.test(String(e.code))?e.code:'STORAGE_UPLOAD';throw new ApiError(503,'图片或文档上传失败（'+code+'），文字记录尚未提交，请保留填写内容。');}if(!uploaded.fileID)throw new Error('Upload failed');await store.addAsset(session.familyId,uploaded.fileID,body.mime);return reply(201,{fileId:uploaded.fileID});
   }
   if(request.method==='POST'&&request.path==='/operations'){
-   await limit('operations:'+session.familyId,300,60000);const assets=await store.assets(session.familyId),allowed=new Set(assets.map(a=>a.fileId));
+   await limit('operations:'+session.familyId,300,60000);const needsAssets=['tasks.create','task.update','gift.save','family.import'].includes(body.type);const allowed=needsAssets?new Set((await store.assets(session.familyId)).map(a=>a.fileId)):new Set();
    for(let i=0;i<8;i++){const row=await store.state(session.familyId);if(!row)throw new ApiError(404,'家庭不存在');const next=applyOperation(row.state,session.role,body,now(),allowed);if(JSON.stringify(next)===JSON.stringify(row.state))return reply(200,await decorate(session,row.state,row.version));const saved=await store.cas(session.familyId,row.version,next);if(saved)return reply(200,await decorate(session,next,saved.version));}
    throw new ApiError(409,'另一个设备正在保存，请重试');
   }

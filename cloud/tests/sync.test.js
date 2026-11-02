@@ -116,3 +116,8 @@ test('parent edits/deletes pending tasks with optimistic protection; rewarded ta
  const del=operation('task.delete',{taskId:spare.id,expected:s.tasks.find(x=>x.id===spare.id)});assert.equal((await request('POST','/operations',del,parent.token)).status,200);assert.equal((await request('POST','/operations',del,parent.token)).status,200);
  base=(await state(parent.token)).state.tasks[0];await op(child.token,'timer',{taskId:t.id,action:'start'});assert.equal((await op(parent.token,'task.delete',{taskId:t.id,expected:base})).status,400);clock+=1500;await op(child.token,'task.complete',{taskId:t.id});base=(await state(parent.token)).state.tasks[0];assert.equal((await op(parent.token,'task.delete',{taskId:t.id,expected:base})).status,400);assert.equal((await op(parent.token,'task.update',{taskId:t.id,expected:base,task:{...base,title:'改完成记录'}})).status,400);assert.equal(E.available((await state(parent.token)).state),1);
 });
+
+test('operations without image changes skip asset-list database reads',async()=>{
+ const {parent,child}=await family(),t=task('减少查询');let reads=0;const original=store.assets.bind(store);store.assets=async(...args)=>{reads++;return original(...args);};
+ try{assert.equal((await op(parent.token,'tasks.create',{tasks:[t]})).status,200);assert.equal(reads,1);reads=0;assert.equal((await op(child.token,'task.complete',{taskId:t.id})).status,200);assert.equal(reads,0);assert.equal((await op(parent.token,'reward.grant',{rewardId:randomUUID(),reason:'特别任务'})).status,200);assert.equal(reads,0);assert.equal((await op(parent.token,'gift.save',{gift:{id:randomUUID(),name:'图片校验',cost:1,photo:'cloud://other-family/forbidden'}})).status,400);assert.equal(reads,1);}finally{store.assets=original;}
+});
