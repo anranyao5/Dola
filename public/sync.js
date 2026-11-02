@@ -20,7 +20,7 @@ try{cloudSession=JSON.parse(localStorage.getItem(CLOUD_SESSION_KEY)||'null');}ca
 function cloudStatus(message){$('#cloudStatus').textContent=message;}
 async function cloudApi(path,body){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);
- try{const r=await fetch(DVA_API_BASE+path,{method:body===undefined?'GET':'POST',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),...(cloudSession?{Authorization:'Bearer '+cloudSession.token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal,cache:'no-store'});if(r.status===413)throw Error('图片或文件上传请求过大，请缩小后重试，填写内容已保留');let data;try{data=await r.json();}catch{throw Error('云端未返回有效数据，请检查服务地址');}if(!r.ok){if(r.status===401&&cloudSession){cloudReady=false;document.body.classList.add('cloud-locked');$('#cloudAuth').hidden=false;$('#cloudAuthMessage').textContent='登录已过期，请重新登录';}throw Error(data.error||'同步失败，请重试');}return data;}catch(e){if(e.name==='AbortError'||e instanceof TypeError)throw Error('网络未连接或响应超时，操作尚未确认保存，请联网后重试');throw e;}finally{clearTimeout(timeout);}
+ try{const r=await fetch(DVA_API_BASE+path,{method:body===undefined?'GET':'POST',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),...(cloudSession?{Authorization:'Bearer '+cloudSession.token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal,cache:'no-store'});if(r.status===413)throw Error('图片或文件上传请求过大，请缩小后重试，填写内容已保留');let data;try{data=await r.json();}catch{throw Error('云端未返回有效数据，请检查服务地址');}if(!r.ok){if(r.status===401&&cloudSession){cloudReady=false;document.body.classList.add('cloud-locked');$('#cloudAuth').hidden=false;$('#cloudAuthMessage').textContent='登录已过期，请重新登录';}const error=Error(data.error||'同步失败，请重试');error.status=r.status;throw error;}return data;}catch(e){if(e.name==='AbortError'||e instanceof TypeError)throw Error('网络未连接或响应超时，操作尚未确认保存，请联网后重试');throw e;}finally{clearTimeout(timeout);}
 }
 function cloudPack(value){
  const s=JSON.parse(JSON.stringify(value));
@@ -53,7 +53,9 @@ function cloudInfer(before,after){
  const make=(type,args)=>({id:crypto.randomUUID(),type,args});
  const reward=after.ledger.find(l=>l.id.startsWith('parent:')&&!before.ledger.some(b=>b.id===l.id));if(reward)return make('reward.grant',{rewardId:reward.id.slice(7),reason:reward.reason});
  const added=after.tasks.filter(t=>!before.tasks.some(b=>b.id===t.id));if(added.length)return make('tasks.create',{tasks:added});
+ const removed=before.tasks.find(t=>!after.tasks.some(a=>a.id===t.id));if(removed)return make('task.delete',{taskId:removed.id,expected:removed});
  for(const t of after.tasks){const b=before.tasks.find(b=>b.id===t.id);if(!b)continue;
+  if(['day','subject','kind','title','attachment','mime'].some(k=>b[k]!==t[k]))return make('task.update',{taskId:t.id,task:t,expected:b});
   if(!b.done&&t.done)return make('task.complete',{taskId:t.id});
   if(!b.fedAt&&t.fedAt)return make('pet.feed',{taskId:t.id,petId:t.fedPetId});
   for(const step of ['read','quiz'])if(b.steps[step]!==t.steps[step])return make('task.step',{taskId:t.id,step,value:t.steps[step]});
@@ -69,7 +71,7 @@ function cloudInfer(before,after){
 async function cloudSubmit(operation){
  cloudRequestPending=operation;
  // Reuse the same operation ID on a lost response. Rewards cannot duplicate.
- for(let attempt=0;attempt<2;attempt++){try{const snapshot=await cloudApi('/operations',operation);cloudRequestPending=null;return snapshot;}catch(e){if(attempt||!e.message.includes('网络'))throw e;}}
+ for(let attempt=0;attempt<2;attempt++){try{const snapshot=await cloudApi('/operations',operation);cloudRequestPending=null;return snapshot;}catch(e){if(e.status>=400&&e.status<500&&![408,429].includes(e.status))cloudRequestPending=null;if(attempt||!e.message.includes('网络'))throw e;}}
 }
 async function transact(fn){
  if(!cloudReady||!cloudSession){toast('请先连接并登录家庭账号');return false;}if(cloudBusy){toast('正在同步上一项，请稍等');return false;}

@@ -105,3 +105,14 @@ test('parent extra flower is role-checked, fixed at one and durable across retri
  const t=task('每日奖励独立');await op(parent.token,'tasks.create',{tasks:[t]});await op(child.token,'task.complete',{taskId:t.id});s=(await state(child.token)).state;assert.equal(E.available(s),2);assert.equal(s.ledger.filter(l=>l.id==='day:'+t.day).length,1);
  await op(parent.token,'reward.grant',{rewardId:randomUUID(),reason:'完成特殊挑战'});assert.equal(E.available((await state(child.token)).state),3);
 });
+
+test('parent edits/deletes pending tasks with optimistic protection; rewarded tasks stay locked',async()=>{
+ const {parent,child}=await family(),t=task('可编辑'),spare=task('待删除');await op(parent.token,'tasks.create',{tasks:[t,spare]});let s=(await state(parent.token)).state,base=s.tasks.find(x=>x.id===t.id);
+ assert.equal((await op(child.token,'task.update',{taskId:t.id,task:{...base,title:'越权'},expected:base})).status,403);
+ assert.equal((await op(child.token,'task.delete',{taskId:spare.id,expected:s.tasks[1]})).status,403);
+ assert.equal((await op(parent.token,'task.update',{taskId:t.id,task:{...base,title:'已修改',kind:'oral'},expected:base})).status,200);
+ assert.equal((await op(parent.token,'task.update',{taskId:t.id,task:{...base,title:'旧版本覆盖'},expected:base})).status,409);
+ s=(await state(child.token)).state;assert.equal(s.tasks[0].title,'已修改');assert.equal(s.tasks[0].kind,'oral');assert.equal(E.available(s),0);
+ const del=operation('task.delete',{taskId:spare.id,expected:s.tasks.find(x=>x.id===spare.id)});assert.equal((await request('POST','/operations',del,parent.token)).status,200);assert.equal((await request('POST','/operations',del,parent.token)).status,200);
+ base=(await state(parent.token)).state.tasks[0];await op(child.token,'timer',{taskId:t.id,action:'start'});assert.equal((await op(parent.token,'task.delete',{taskId:t.id,expected:base})).status,400);clock+=1500;await op(child.token,'task.complete',{taskId:t.id});base=(await state(parent.token)).state.tasks[0];assert.equal((await op(parent.token,'task.delete',{taskId:t.id,expected:base})).status,400);assert.equal((await op(parent.token,'task.update',{taskId:t.id,expected:base,task:{...base,title:'改完成记录'}})).status,400);assert.equal(E.available((await state(parent.token)).state),1);
+});

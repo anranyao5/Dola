@@ -14,7 +14,7 @@ s=s.replace('function transact(fn){','function demoTransact(fn){')
 s=s.replace('transact(()=>','await transact(()=>').replace('if(!await transact(()=>','if(!(await transact(()=>')
 # Fix parentheses for the one negated transaction in petCompanion.
 s=s.replace("state.pet.lastPettedDay=dayOf();}))return;","state.pet.lastPettedDay=dayOf();})))return;")
-for name in ('petCompanion','feedCompanion','finishTask','changeOrder'):
+for name in ('petCompanion','feedCompanion','finishTask','changeOrder','deleteParentTask'):
  s=s.replace('function '+name+'(', 'async function '+name+'(')
 s=s.replace('.onclick=()=>{','.onclick=async()=>{').replace('.onchange=()=>{','.onchange=async()=>{')
 s=s.replace("window.addEventListener('storage',", "window.addEventListener('dva-unused-demo-storage',")
